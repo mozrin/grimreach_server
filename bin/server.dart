@@ -27,6 +27,12 @@ void main() async {
       Faction.chaos: 0.0,
     };
   }
+  // Phase 022: Zone Control Persistence
+  final zoneControl = <String, Faction>{};
+  for (final zone in Zone.values) {
+    zoneControl[zone.name] = Faction.neutral;
+  }
+  final zoneCooldowns = <String, int>{}; // Zone -> Ticks remaining
 
   int spawnTick = 0;
   const int maxPerZone = 5;
@@ -306,8 +312,8 @@ void main() async {
       }
     }
 
-    // 7. Zone Control (Phase 020)
-    final zoneControl = <String, Faction>{};
+    // 7. Zone Influence & Control (Phase 022)
+    final recentShifts = <String>{};
 
     // Prepare counters: Zone Name -> Faction -> Count
     final presence = <String, Map<Faction, int>>{};
@@ -333,35 +339,12 @@ void main() async {
           (presence[p.zone.name]?[p.faction] ?? 0) + 1;
     }
 
-    // Determine Control
-    presence.forEach((zoneName, factionCounts) {
-      Faction winner = Faction.neutral;
-      int maxCount = 0;
-      bool tie = false;
-
-      factionCounts.forEach((faction, count) {
-        if (count > maxCount) {
-          maxCount = count;
-          winner = faction;
-          tie = false;
-        } else if (count == maxCount && count > 0) {
-          tie = true;
-        }
-      });
-
-      if (tie) {
-        zoneControl[zoneName] = Faction.neutral;
-      } else {
-        zoneControl[zoneName] = winner;
-      }
-    });
-
-    // 8. Faction Influence (Phase 021)
-    // Update persistent zoneInfluence map
+    // 7. Zone Influence & Control (Phase 022)
     zoneInfluence.forEach((zoneName, factionScores) {
       final factionCounts =
           presence[zoneName]!; // Should exist per initialization
 
+      // A. Update Influence Scores (Gain/Decay)
       factionScores.keys.toList().forEach((faction) {
         final count = factionCounts[faction] ?? 0;
         double gain = count * 1.0;
@@ -373,6 +356,39 @@ void main() async {
 
         factionScores[faction] = newScore;
       });
+
+      // B. Evaluate Zone Control
+      if ((zoneCooldowns[zoneName] ?? 0) > 0) {
+        zoneCooldowns[zoneName] = zoneCooldowns[zoneName]! - 1;
+      } else {
+        // Find Top 2 Factions
+        var entries = factionScores.entries.toList();
+        entries.sort((a, b) => b.value.compareTo(a.value)); // Descending
+
+        final top = entries[0];
+        final runnerUp = entries.length > 1 ? entries[1] : null;
+
+        final maxScore = top.value;
+        final secondScore = runnerUp?.value ?? 0.0;
+
+        // Rules: Threshold 50, Lead 20
+        if (maxScore >= 50.0 && (maxScore - secondScore) >= 20.0) {
+          final currentOwner = zoneControl[zoneName];
+          final newOwner = top.key;
+
+          if (currentOwner != newOwner) {
+            // FLIP!
+            zoneControl[zoneName] = newOwner;
+            recentShifts.add(zoneName);
+            // Set Cooldown (5 seconds = 50 ticks)
+            zoneCooldowns[zoneName] = 50;
+
+            logger.info(
+              'Zone Flip: $zoneName taken by ${newOwner.name} (Score: ${maxScore.toStringAsFixed(1)})',
+            );
+          }
+        }
+      }
     });
 
     final state = WorldState(
@@ -385,6 +401,7 @@ void main() async {
       averageGroupSize: avgGroupSize,
       zoneControl: zoneControl,
       zoneInfluence: zoneInfluence,
+      recentShifts: recentShifts,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
