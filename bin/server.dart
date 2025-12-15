@@ -14,16 +14,44 @@ void main() async {
   // However, 'await for' blocks main. So we should run start() in a Future or put tick loop before/concurrently.
   // Actually, await server.start() will block indefinitely. I should put tick loop before await, or not await start() directly if I want code after it.
 
-  // Option 1: Start tick loop first.
-  // Create static entities
-  final entities = [
-    Entity(id: 'ent_1', zone: Zone.safe, type: EntityType.npc),
-    Entity(id: 'ent_2', zone: Zone.wilderness, type: EntityType.resource),
-    Entity(id: 'ent_3', zone: Zone.safe, type: EntityType.structure),
-  ];
+  // Spawn State
+  final entities = <Entity>[];
+  int spawnTick = 0;
+  const int maxPerZone = 5;
+  int nextEntityId = 1;
 
   print('Server: Starting tick loop...');
   Timer.periodic(Duration(milliseconds: 100), (timer) {
+    spawnTick++;
+
+    // Spawn Cycle (every 10 ticks = 1 second)
+    if (spawnTick % 10 == 0) {
+      // Safe Zone Rule (NPCs)
+      final safeCount = entities.where((e) => e.zone == Zone.safe).length;
+      if (safeCount < maxPerZone) {
+        entities.add(
+          Entity(
+            id: 'spawn_safe_$nextEntityId',
+            zone: Zone.safe,
+            type: EntityType.npc,
+          ),
+        );
+        nextEntityId++;
+      }
+
+      // Wilderness Rule (Resources)
+      final wildCount = entities.where((e) => e.zone == Zone.wilderness).length;
+      if (wildCount < maxPerZone) {
+        entities.add(
+          Entity(
+            id: 'spawn_wild_$nextEntityId',
+            zone: Zone.wilderness,
+            type: EntityType.resource,
+          ),
+        );
+        nextEntityId++;
+      }
+    }
     final players = server.sessions.map((s) => s.player).toList();
     final state = WorldState(entities: entities, players: players);
     final message = Message(type: Protocol.state, data: state.toJson());
