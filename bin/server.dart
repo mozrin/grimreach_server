@@ -14,7 +14,8 @@ void main() async {
   // Option 1: Start tick loop first.
   print('Server: Starting tick loop...');
   Timer.periodic(Duration(milliseconds: 100), (timer) {
-    final state = WorldState(entities: [], players: []);
+    final players = server.sessions.map((s) => s.player).toList();
+    final state = WorldState(entities: [], players: players);
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
   });

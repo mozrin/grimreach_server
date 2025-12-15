@@ -1,12 +1,15 @@
 import 'dart:io';
 import 'package:grimreach_api/message_codec.dart';
 import 'package:grimreach_api/messages.dart';
+import 'package:grimreach_api/player.dart';
+import 'package:grimreach_api/zone.dart';
 import 'client_session.dart';
 
 class WebsocketServer {
   final int port;
   final List<ClientSession> sessions = [];
   final MessageCodec _codec = MessageCodec();
+  int _nextId = 1;
 
   WebsocketServer({required this.port});
 
@@ -17,9 +20,17 @@ class WebsocketServer {
     await for (HttpRequest req in httpServer) {
       if (req.uri.path == '/ws') {
         final socket = await WebSocketTransformer.upgrade(req);
-        final session = ClientSession(socket);
+
+        final id = 'player_$_nextId';
+        final zone = _nextId % 2 != 0 ? Zone.safe : Zone.wilderness;
+        _nextId++;
+
+        final player = Player(id: id, x: 0, y: 0, zone: zone);
+        final session = ClientSession(socket, player);
         sessions.add(session);
-        print('Server: Client connected. Total sessions: ${sessions.length}');
+        print(
+          'Server: Client connected. Assigned ID: $id in Zone: ${zone.name}. Total sessions: ${sessions.length}',
+        );
 
         socket.done.then((_) {
           sessions.remove(session);

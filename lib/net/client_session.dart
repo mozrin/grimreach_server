@@ -1,11 +1,13 @@
 import 'dart:io';
 import 'package:grimreach_api/message_codec.dart';
+import 'package:grimreach_api/player.dart';
 
 class ClientSession {
   final WebSocket socket;
+  final Player player;
   final MessageCodec codec = MessageCodec();
 
-  ClientSession(this.socket) {
+  ClientSession(this.socket, this.player) {
     socket.listen(onMessage, onDone: onDisconnect);
   }
 
@@ -13,7 +15,9 @@ class ClientSession {
     if (data is String) {
       try {
         final message = codec.decode(data);
-        print('Server: Received ${message.type}');
+        print(
+          'Server: Received ${message.type} from ${player.id} in ${player.zone.name}',
+        );
         // Echo back
         socket.add(codec.encode(message));
       } catch (e) {
