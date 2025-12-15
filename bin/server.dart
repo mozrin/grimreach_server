@@ -55,6 +55,9 @@ void main() async {
     Zone.safe.name: 0.0,
     Zone.wilderness.name: 0.0,
   };
+  // Phase 028: Environmental State
+  int environmentTimer = 0;
+  String currentEnvironment = 'calm';
 
   const int maxPerZone = 20;
   const int defaultLifetime = 50; // 5 seconds
@@ -85,7 +88,7 @@ void main() async {
     zoneSpawnCooldowns.updateAll((key, value) => value > 0 ? value - 1 : 0);
 
     // Safe Zone Rule (NPCs) -> Faction Order
-    if (zoneSpawnCooldowns[Zone.safe]! <= 0) {
+    if (currentEnvironment != 'storm' && zoneSpawnCooldowns[Zone.safe]! <= 0) {
       final safeCount = entities.where((e) => e.zone == Zone.safe).length;
       if (safeCount < maxPerZone) {
         final id = 'spawn_safe_$nextEntityId';
@@ -146,7 +149,8 @@ void main() async {
     }
 
     // Wilderness Rule (Resources) -> Faction Chaos
-    if (zoneSpawnCooldowns[Zone.wilderness]! <= 0) {
+    if (currentEnvironment != 'storm' &&
+        zoneSpawnCooldowns[Zone.wilderness]! <= 0) {
       final wildCount = entities.where((e) => e.zone == Zone.wilderness).length;
       if (wildCount < maxPerZone) {
         final id = 'spawn_wild_$nextEntityId';
@@ -266,6 +270,11 @@ void main() async {
           entityDirections[e.id] = 1.0;
         }
         dir = entityDirections[e.id]! * 0.5; // Scale to match previous speed
+      }
+
+      // Modifiers (Phase 028)
+      if (currentEnvironment == 'fog') {
+        dir *= 0.4; // 0.2 speed (since prev was *0.5)
       }
 
       // Migration Push (Phase 027)
@@ -612,6 +621,18 @@ void main() async {
       migrationPressure[zoneName] = next;
     }
 
+    // 12. Environmental Cycle (Phase 028)
+    environmentTimer++;
+    if (environmentTimer > 100) environmentTimer = 0;
+
+    if (environmentTimer <= 50) {
+      currentEnvironment = 'calm';
+    } else if (environmentTimer <= 80) {
+      currentEnvironment = 'fog';
+    } else {
+      currentEnvironment = 'storm';
+    }
+
     final state = WorldState(
       entities: entities,
       players: players,
@@ -628,6 +649,7 @@ void main() async {
       factionInfluenceModifiers: factionInfluenceModifiers,
       zoneSaturation: zoneSaturation,
       migrationPressure: migrationPressure,
+      globalEnvironment: currentEnvironment,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
