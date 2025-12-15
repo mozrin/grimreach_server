@@ -32,6 +32,12 @@ void main() async {
   for (final zone in Zone.values) {
     zoneControl[zone.name] = Faction.neutral;
   }
+  // Phase 023: Faction Morale Persistence
+  final factionMorale = <Faction, double>{
+    Faction.neutral: 50.0,
+    Faction.order: 50.0,
+    Faction.chaos: 50.0,
+  };
   final zoneCooldowns = <String, int>{}; // Zone -> Ticks remaining
 
   int spawnTick = 0;
@@ -391,6 +397,24 @@ void main() async {
       }
     });
 
+    // 8. Faction Morale (Phase 023)
+    factionMorale.forEach((faction, score) {
+      // Gain: +0.5 per controlled zone
+      int controlledZones = 0;
+      zoneControl.forEach((k, v) {
+        if (v == faction) controlledZones++;
+      });
+
+      double gain = controlledZones * 0.5;
+      double decay = 0.05;
+
+      double newScore = score + gain - decay;
+      if (newScore > 100.0) newScore = 100.0;
+      if (newScore < 0.0) newScore = 0.0;
+
+      factionMorale[faction] = newScore;
+    });
+
     final state = WorldState(
       entities: entities,
       players: players,
@@ -402,6 +426,7 @@ void main() async {
       zoneControl: zoneControl,
       zoneInfluence: zoneInfluence,
       recentShifts: recentShifts,
+      factionMorale: factionMorale,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
