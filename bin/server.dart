@@ -32,12 +32,20 @@ void main() async {
   for (final zone in Zone.values) {
     zoneControl[zone.name] = Faction.neutral;
   }
-  // Phase 023: Faction Morale Persistence
+  // Phase 023: Faction Morale  // Persistent State (Phase 023)
   final factionMorale = <Faction, double>{
     Faction.neutral: 50.0,
     Faction.order: 50.0,
     Faction.chaos: 50.0,
   };
+
+  // Persistent State (Phase 025)
+  final factionPressure = <Faction, double>{
+    Faction.neutral: 50.0,
+    Faction.order: 50.0,
+    Faction.chaos: 50.0,
+  };
+  final zoneSpawnCooldowns = <Zone, int>{Zone.safe: 0, Zone.wilderness: 0};
   final zoneCooldowns = <String, int>{}; // Zone -> Ticks remaining
 
   int spawnTick = 0;
@@ -66,9 +74,13 @@ void main() async {
       logger.info('Despawned entity $id');
     }
 
-    // 2. Spawn Cycle (every 10 ticks = 1 second)
-    if (spawnTick % 10 == 0) {
-      // Safe Zone Rule (NPCs) -> Faction Order
+    // 2. Spawn Cycle (Pressure-Driven Phase 025)
+
+    // Decrement Cooldowns
+    zoneSpawnCooldowns.updateAll((key, value) => value > 0 ? value - 1 : 0);
+
+    // Safe Zone Rule (NPCs) -> Faction Order
+    if (zoneSpawnCooldowns[Zone.safe]! <= 0) {
       final safeCount = entities.where((e) => e.zone == Zone.safe).length;
       if (safeCount < maxPerZone) {
         final id = 'spawn_safe_$nextEntityId';
@@ -84,9 +96,20 @@ void main() async {
         );
         lifetimes[id] = defaultLifetime;
         nextEntityId++;
-      }
 
-      // Wilderness Rule (Resources) -> Faction Chaos
+        // Set Cooldown based on Order Pressure
+        double pressure = factionPressure[Faction.order] ?? 50.0;
+        double mult = 0.5 + (pressure / 100.0); // 0.5 to 1.5
+        int delay = (20 / mult).round(); // Base 20 ticks
+        zoneSpawnCooldowns[Zone.safe] = delay;
+        logger.info(
+          'Spawned Safe Entity (Order). Pressure: $pressure, Next in $delay ticks',
+        );
+      }
+    }
+
+    // Wilderness Rule (Resources) -> Faction Chaos
+    if (zoneSpawnCooldowns[Zone.wilderness]! <= 0) {
       final wildCount = entities.where((e) => e.zone == Zone.wilderness).length;
       if (wildCount < maxPerZone) {
         final id = 'spawn_wild_$nextEntityId';
@@ -102,6 +125,15 @@ void main() async {
         );
         lifetimes[id] = defaultLifetime;
         nextEntityId++;
+
+        // Set Cooldown based on Chaos Pressure
+        double pressure = factionPressure[Faction.chaos] ?? 50.0;
+        double mult = 0.5 + (pressure / 100.0); // 0.5 to 1.5
+        int delay = (20 / mult).round(); // Base 20 ticks
+        zoneSpawnCooldowns[Zone.wilderness] = delay;
+        logger.info(
+          'Spawned Wilderness Entity (Chaos). Pressure: $pressure, Next in $delay ticks',
+        );
       }
     }
 
@@ -434,6 +466,22 @@ void main() async {
       factionMorale[faction] = newScore;
     });
 
+    // 9. Faction Pressure (Phase 025)
+    factionPressure.forEach((faction, score) {
+      if (faction == Faction.neutral)
+        return; // Neutral doesn't build pressure usually? Or 50 constant?
+
+      double morale = factionMorale[faction] ?? 50.0;
+      double gain = (morale / 100.0) * 0.5; // Up to +0.5
+      double decay = 0.2; // Constant drain
+
+      double newScore = score + gain - decay;
+      if (newScore > 100.0) newScore = 100.0;
+      if (newScore < 0.0) newScore = 0.0;
+
+      factionPressure[faction] = newScore;
+    });
+
     final state = WorldState(
       entities: entities,
       players: players,
@@ -446,6 +494,7 @@ void main() async {
       zoneInfluence: zoneInfluence,
       recentShifts: recentShifts,
       factionMorale: factionMorale,
+      factionPressure: factionPressure,
       factionInfluenceModifiers: factionInfluenceModifiers,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
