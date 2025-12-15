@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:grimreach_api/messages.dart';
 import 'package:grimreach_api/protocol.dart';
+import 'package:grimreach_api/entity.dart';
 import 'package:grimreach_api/world_state.dart';
 import 'package:grimreach_server/net/websocket_server.dart';
 
@@ -12,10 +13,17 @@ void main() async {
   // Actually, await server.start() will block indefinitely. I should put tick loop before await, or not await start() directly if I want code after it.
 
   // Option 1: Start tick loop first.
+  // Create static entities
+  final entities = [
+    Entity(id: 'ent_1'),
+    Entity(id: 'ent_2'),
+    Entity(id: 'ent_3'),
+  ];
+
   print('Server: Starting tick loop...');
   Timer.periodic(Duration(milliseconds: 100), (timer) {
     final players = server.sessions.map((s) => s.player).toList();
-    final state = WorldState(entities: [], players: players);
+    final state = WorldState(entities: entities, players: players);
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
   });
