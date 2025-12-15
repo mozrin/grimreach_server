@@ -48,15 +48,12 @@ void main() async {
   final zoneSpawnCooldowns = <Zone, int>{Zone.safe: 0, Zone.wilderness: 0};
   final zoneCooldowns = <String, int>{}; // Zone -> Ticks remaining
 
-  int spawnTick = 0;
   const int maxPerZone = 5;
   const int defaultLifetime = 50; // 5 seconds
   int nextEntityId = 1;
 
   logger.info('Starting tick loop...');
   Timer.periodic(Duration(milliseconds: 100), (timer) {
-    spawnTick++;
-
     // 1. Despawn Cycle
     final expiredIds = <String>[];
     for (final id in lifetimes.keys) {
@@ -468,16 +465,21 @@ void main() async {
 
     // 9. Faction Pressure (Phase 025)
     factionPressure.forEach((faction, score) {
-      if (faction == Faction.neutral)
-        return; // Neutral doesn't build pressure usually? Or 50 constant?
+      if (faction == Faction.neutral) {
+        return;
+      } // Neutral doesn't build pressure usually? Or 50 constant?
 
       double morale = factionMorale[faction] ?? 50.0;
       double gain = (morale / 100.0) * 0.5; // Up to +0.5
       double decay = 0.2; // Constant drain
 
       double newScore = score + gain - decay;
-      if (newScore > 100.0) newScore = 100.0;
-      if (newScore < 0.0) newScore = 0.0;
+      if (newScore > 100.0) {
+        newScore = 100.0;
+      }
+      if (newScore < 0.0) {
+        newScore = 0.0;
+      }
 
       factionPressure[faction] = newScore;
     });
