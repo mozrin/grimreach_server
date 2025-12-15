@@ -16,39 +16,50 @@ void main() async {
 
   // Spawn State
   final entities = <Entity>[];
+  final lifetimes = <String, int>{}; // ID -> Remaining Ticks
   int spawnTick = 0;
   const int maxPerZone = 5;
+  const int defaultLifetime = 50; // 5 seconds
   int nextEntityId = 1;
 
   print('Server: Starting tick loop...');
   Timer.periodic(Duration(milliseconds: 100), (timer) {
     spawnTick++;
 
-    // Spawn Cycle (every 10 ticks = 1 second)
+    // 1. Despawn Cycle
+    final expiredIds = <String>[];
+    for (final id in lifetimes.keys) {
+      lifetimes[id] = lifetimes[id]! - 1;
+      if (lifetimes[id]! <= 0) {
+        expiredIds.add(id);
+      }
+    }
+
+    for (final id in expiredIds) {
+      entities.removeWhere((e) => e.id == id);
+      lifetimes.remove(id);
+      print('Server: Despawned entity $id');
+    }
+
+    // 2. Spawn Cycle (every 10 ticks = 1 second)
     if (spawnTick % 10 == 0) {
       // Safe Zone Rule (NPCs)
       final safeCount = entities.where((e) => e.zone == Zone.safe).length;
       if (safeCount < maxPerZone) {
-        entities.add(
-          Entity(
-            id: 'spawn_safe_$nextEntityId',
-            zone: Zone.safe,
-            type: EntityType.npc,
-          ),
-        );
+        final id = 'spawn_safe_$nextEntityId';
+        entities.add(Entity(id: id, zone: Zone.safe, type: EntityType.npc));
+        lifetimes[id] = defaultLifetime;
         nextEntityId++;
       }
 
       // Wilderness Rule (Resources)
       final wildCount = entities.where((e) => e.zone == Zone.wilderness).length;
       if (wildCount < maxPerZone) {
+        final id = 'spawn_wild_$nextEntityId';
         entities.add(
-          Entity(
-            id: 'spawn_wild_$nextEntityId',
-            zone: Zone.wilderness,
-            type: EntityType.resource,
-          ),
+          Entity(id: id, zone: Zone.wilderness, type: EntityType.resource),
         );
+        lifetimes[id] = defaultLifetime;
         nextEntityId++;
       }
     }
