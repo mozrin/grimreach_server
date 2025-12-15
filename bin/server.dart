@@ -6,6 +6,7 @@ import 'package:grimreach_api/world_state.dart';
 import 'package:grimreach_api/zone.dart';
 import 'package:grimreach_api/entity_type.dart';
 import 'package:grimreach_api/player.dart';
+import 'package:grimreach_api/faction.dart';
 import 'package:grimreach_server/net/websocket_server.dart';
 import 'package:grimreach_server/services/logger_service.dart';
 
@@ -45,7 +46,7 @@ void main() async {
 
     // 2. Spawn Cycle (every 10 ticks = 1 second)
     if (spawnTick % 10 == 0) {
-      // Safe Zone Rule (NPCs)
+      // Safe Zone Rule (NPCs) -> Faction Order
       final safeCount = entities.where((e) => e.zone == Zone.safe).length;
       if (safeCount < maxPerZone) {
         final id = 'spawn_safe_$nextEntityId';
@@ -56,13 +57,14 @@ void main() async {
             y: 0.0,
             zone: Zone.safe,
             type: EntityType.npc,
+            faction: Faction.order,
           ),
         );
         lifetimes[id] = defaultLifetime;
         nextEntityId++;
       }
 
-      // Wilderness Rule (Resources)
+      // Wilderness Rule (Resources) -> Faction Chaos
       final wildCount = entities.where((e) => e.zone == Zone.wilderness).length;
       if (wildCount < maxPerZone) {
         final id = 'spawn_wild_$nextEntityId';
@@ -73,6 +75,7 @@ void main() async {
             y: 0.0,
             zone: Zone.wilderness,
             type: EntityType.resource,
+            faction: Faction.chaos,
           ),
         );
         lifetimes[id] = defaultLifetime;
@@ -184,6 +187,7 @@ void main() async {
           y: e.y,
           zone: newZone,
           type: e.type,
+          faction: e.faction, // Propagate faction
         );
       }
     }
@@ -218,7 +222,13 @@ void main() async {
       final newZone = newX < 0 ? Zone.safe : Zone.wilderness;
 
       // Update Session Player
-      session.player = Player(id: p.id, x: newX, y: p.y, zone: newZone);
+      session.player = Player(
+        id: p.id,
+        x: newX,
+        y: p.y,
+        zone: newZone,
+        faction: p.faction, // Propagate
+      );
     }
     final players = server.sessions.map((s) => s.player).toList();
 

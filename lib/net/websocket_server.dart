@@ -3,6 +3,7 @@ import 'package:grimreach_api/message_codec.dart';
 import 'package:grimreach_api/messages.dart';
 import 'package:grimreach_api/player.dart';
 import 'package:grimreach_api/zone.dart';
+import 'package:grimreach_api/faction.dart';
 import 'package:grimreach_server/services/logger_service.dart';
 import 'client_session.dart';
 
@@ -25,9 +26,11 @@ class WebsocketServer {
 
         final id = 'player_$_nextId';
         final zone = _nextId % 2 != 0 ? Zone.safe : Zone.wilderness;
+        // Deterministic Faction: Odd = Order, Even = Chaos (or based on Zone)
+        final faction = _nextId % 2 != 0 ? Faction.order : Faction.chaos;
         _nextId++;
 
-        final player = Player(id: id, x: 0, y: 0, zone: zone);
+        final player = Player(id: id, x: 0, y: 0, zone: zone, faction: faction);
         final session = ClientSession(socket, player);
         sessions.add(session);
         _logger.info(
