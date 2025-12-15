@@ -345,7 +345,22 @@ void main() async {
           (presence[p.zone.name]?[p.faction] ?? 0) + 1;
     }
 
-    // 7. Zone Influence & Control (Phase 022)
+    // 7. Zone Influence & Control (Phase 022) with Modifiers (Phase 024)
+    final factionGainMult = <Faction, double>{};
+    final factionDecayMult = <Faction, double>{};
+
+    // Calculate Modifiers based on Morale
+    factionMorale.forEach((faction, morale) {
+      double ratio = morale / 100.0;
+      factionGainMult[faction] = 0.5 + ratio; // 0.5 to 1.5
+      factionDecayMult[faction] = 1.5 - ratio; // 1.5 to 0.5
+    });
+
+    // Exposed Map for WorldState
+    final factionInfluenceModifiers = Map<Faction, double>.from(
+      factionGainMult,
+    );
+
     zoneInfluence.forEach((zoneName, factionScores) {
       final factionCounts =
           presence[zoneName]!; // Should exist per initialization
@@ -353,8 +368,12 @@ void main() async {
       // A. Update Influence Scores (Gain/Decay)
       factionScores.keys.toList().forEach((faction) {
         final count = factionCounts[faction] ?? 0;
-        double gain = count * 1.0;
-        double decay = 0.1;
+
+        final gainMult = factionGainMult[faction] ?? 1.0;
+        final decayMult = factionDecayMult[faction] ?? 1.0;
+
+        double gain = count * 1.0 * gainMult;
+        double decay = 0.1 * decayMult;
 
         double newScore = factionScores[faction]! + gain - decay;
         if (newScore > 100.0) newScore = 100.0;
@@ -427,6 +446,7 @@ void main() async {
       zoneInfluence: zoneInfluence,
       recentShifts: recentShifts,
       factionMorale: factionMorale,
+      factionInfluenceModifiers: factionInfluenceModifiers,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
