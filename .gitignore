@@ -1,3 +1,22 @@
 # https://dart.dev/guides/libraries/private-files
 # Created by `dart pub`
 .dart_tool/
+
+# Standard Dart/Flutter/IDE ignores
+.idea/
+.vscode/
+build/
+coverage/
+generated/
+
+# Logs and temps
+*.log
+*.tmp
+*.cache
+/logs/
+/out/
+/dist/
+.DS_Store
+
+# Server logs
+server.log
