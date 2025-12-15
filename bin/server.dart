@@ -296,6 +296,56 @@ void main() async {
       }
     }
 
+    // 7. Zone Control (Phase 020)
+    final zoneControl = <String, Faction>{};
+
+    // Prepare counters: Zone Name -> Faction -> Count
+    final presence = <String, Map<Faction, int>>{};
+
+    // Initialize zones
+    for (final zone in Zone.values) {
+      presence[zone.name] = {
+        Faction.neutral: 0,
+        Faction.order: 0,
+        Faction.chaos: 0,
+      };
+    }
+
+    // Count Entities
+    for (final e in entities) {
+      presence[e.zone.name]?[e.faction] =
+          (presence[e.zone.name]?[e.faction] ?? 0) + 1;
+    }
+
+    // Count Players
+    for (final p in players) {
+      presence[p.zone.name]?[p.faction] =
+          (presence[p.zone.name]?[p.faction] ?? 0) + 1;
+    }
+
+    // Determine Control
+    presence.forEach((zoneName, factionCounts) {
+      Faction winner = Faction.neutral;
+      int maxCount = 0;
+      bool tie = false;
+
+      factionCounts.forEach((faction, count) {
+        if (count > maxCount) {
+          maxCount = count;
+          winner = faction;
+          tie = false;
+        } else if (count == maxCount && count > 0) {
+          tie = true;
+        }
+      });
+
+      if (tie) {
+        zoneControl[zoneName] = Faction.neutral;
+      } else {
+        zoneControl[zoneName] = winner;
+      }
+    });
+
     final state = WorldState(
       entities: entities,
       players: players,
@@ -304,6 +354,7 @@ void main() async {
       largestClusterSize: largestClusterSize,
       groupCount: groupCount,
       averageGroupSize: avgGroupSize,
+      zoneControl: zoneControl,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
