@@ -18,6 +18,16 @@ void main() async {
   final entities = <Entity>[];
   final lifetimes = <String, int>{}; // ID -> Remaining Ticks
   final entityDirections = <String, double>{}; // ID -> Direction (1.0 or -1.0)
+  // Phase 021: Persistent Influence Map
+  final zoneInfluence = <String, Map<Faction, double>>{};
+  for (final zone in Zone.values) {
+    zoneInfluence[zone.name] = {
+      Faction.neutral: 0.0,
+      Faction.order: 0.0,
+      Faction.chaos: 0.0,
+    };
+  }
+
   int spawnTick = 0;
   const int maxPerZone = 5;
   const int defaultLifetime = 50; // 5 seconds
@@ -346,6 +356,25 @@ void main() async {
       }
     });
 
+    // 8. Faction Influence (Phase 021)
+    // Update persistent zoneInfluence map
+    zoneInfluence.forEach((zoneName, factionScores) {
+      final factionCounts =
+          presence[zoneName]!; // Should exist per initialization
+
+      factionScores.keys.toList().forEach((faction) {
+        final count = factionCounts[faction] ?? 0;
+        double gain = count * 1.0;
+        double decay = 0.1;
+
+        double newScore = factionScores[faction]! + gain - decay;
+        if (newScore > 100.0) newScore = 100.0;
+        if (newScore < 0.0) newScore = 0.0;
+
+        factionScores[faction] = newScore;
+      });
+    });
+
     final state = WorldState(
       entities: entities,
       players: players,
@@ -355,6 +384,7 @@ void main() async {
       groupCount: groupCount,
       averageGroupSize: avgGroupSize,
       zoneControl: zoneControl,
+      zoneInfluence: zoneInfluence,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
