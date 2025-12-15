@@ -1,8 +1,6 @@
-import 'package:grimreach_api/world_state.dart';
+import 'package:grimreach_server/net/websocket_server.dart';
 
-void main() {
-  final state = WorldState(entities: [], players: []);
-  print(
-    'Server: API linked. State created with ${state.players.length} players.',
-  );
+void main() async {
+  final server = WebsocketServer(port: 8080);
+  await server.start();
 }
