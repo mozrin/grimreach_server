@@ -51,6 +51,10 @@ void main() async {
     Zone.safe.name: 'normal',
     Zone.wilderness.name: 'normal',
   };
+  final migrationPressure = <String, double>{
+    Zone.safe.name: 0.0,
+    Zone.wilderness.name: 0.0,
+  };
 
   const int maxPerZone = 20;
   const int defaultLifetime = 50; // 5 seconds
@@ -262,6 +266,17 @@ void main() async {
           entityDirections[e.id] = 1.0;
         }
         dir = entityDirections[e.id]! * 0.5; // Scale to match previous speed
+      }
+
+      // Migration Push (Phase 027)
+      // Safe Zone -> Wilderness (+X)
+      // Only applies if Pressure > 50
+      double zonePressure = migrationPressure[e.zone.name] ?? 0.0;
+      if (zonePressure > 50.0) {
+        double push = (zonePressure - 50.0) / 500.0; // Max 0.1
+        if (e.zone == Zone.safe) {
+          dir += push;
+        }
       }
 
       var newX = e.x + dir;
@@ -574,6 +589,29 @@ void main() async {
       zoneSaturation[zoneName] = state;
     }
 
+    // 11. Migration Pressure (Phase 027)
+    for (final zoneName in Zone.values.map((z) => z.name)) {
+      String sat = zoneSaturation[zoneName] ?? 'normal';
+      double current = migrationPressure[zoneName] ?? 0.0;
+
+      // Gain
+      double gain = 0.0;
+      if (sat == 'overcrowded') {
+        gain = 5.0;
+      } else if (sat == 'crowded') {
+        gain = 1.0;
+      }
+
+      // Decay
+      double decay = 0.5;
+
+      double next = current + gain - decay;
+      if (next > 100.0) next = 100.0;
+      if (next < 0.0) next = 0.0;
+
+      migrationPressure[zoneName] = next;
+    }
+
     final state = WorldState(
       entities: entities,
       players: players,
@@ -589,6 +627,7 @@ void main() async {
       factionPressure: factionPressure,
       factionInfluenceModifiers: factionInfluenceModifiers,
       zoneSaturation: zoneSaturation,
+      migrationPressure: migrationPressure,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
