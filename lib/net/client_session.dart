@@ -4,7 +4,7 @@ import 'package:grimreach_api/player.dart';
 
 class ClientSession {
   final WebSocket socket;
-  final Player player;
+  Player player; // Mutable to allow updates
   final MessageCodec codec = MessageCodec();
 
   ClientSession(this.socket, this.player) {

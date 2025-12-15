@@ -5,6 +5,7 @@ import 'package:grimreach_api/entity.dart';
 import 'package:grimreach_api/world_state.dart';
 import 'package:grimreach_api/zone.dart';
 import 'package:grimreach_api/entity_type.dart';
+import 'package:grimreach_api/player.dart';
 import 'package:grimreach_server/net/websocket_server.dart';
 
 void main() async {
@@ -17,6 +18,7 @@ void main() async {
   // Spawn State
   final entities = <Entity>[];
   final lifetimes = <String, int>{}; // ID -> Remaining Ticks
+  final playerDirections = <String, double>{}; // ID -> Direction (1.0 or -1.0)
   int spawnTick = 0;
   const int maxPerZone = 5;
   const int defaultLifetime = 50; // 5 seconds
@@ -62,6 +64,35 @@ void main() async {
         lifetimes[id] = defaultLifetime;
         nextEntityId++;
       }
+    }
+
+    // 3. Player Movement Simulation
+    for (final session in server.sessions) {
+      final p = session.player;
+
+      // Determine direction
+      if (!playerDirections.containsKey(p.id)) {
+        playerDirections[p.id] = 1.0;
+      }
+      final dir = playerDirections[p.id]!;
+
+      // Calculate new state
+      var newX = p.x + (dir * 0.5);
+      var newDir = dir;
+
+      if (newX >= 10.0) {
+        newDir = -1.0;
+        newX = 10.0; // Clamp
+      } else if (newX <= -10.0) {
+        newDir = 1.0;
+        newX = -10.0; // Clamp
+      }
+      playerDirections[p.id] = newDir;
+
+      final newZone = newX < 0 ? Zone.safe : Zone.wilderness;
+
+      // Update Session Player
+      session.player = Player(id: p.id, x: newX, y: p.y, zone: newZone);
     }
     final players = server.sessions.map((s) => s.player).toList();
     final state = WorldState(entities: entities, players: players);
