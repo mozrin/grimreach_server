@@ -47,8 +47,12 @@ void main() async {
   };
   final zoneSpawnCooldowns = <Zone, int>{Zone.safe: 0, Zone.wilderness: 0};
   final zoneCooldowns = <String, int>{}; // Zone -> Ticks remaining
+  final zoneSaturation = <String, String>{
+    Zone.safe.name: 'normal',
+    Zone.wilderness.name: 'normal',
+  };
 
-  const int maxPerZone = 5;
+  const int maxPerZone = 20;
   const int defaultLifetime = 50; // 5 seconds
   int nextEntityId = 1;
 
@@ -97,11 +101,43 @@ void main() async {
         // Set Cooldown based on Order Pressure
         double pressure = factionPressure[Faction.order] ?? 50.0;
         double mult = 0.5 + (pressure / 100.0); // 0.5 to 1.5
-        int delay = (20 / mult).round(); // Base 20 ticks
-        zoneSpawnCooldowns[Zone.safe] = delay;
-        logger.info(
-          'Spawned Safe Entity (Order). Pressure: $pressure, Next in $delay ticks',
-        );
+
+        // Saturation Check
+        String saturation = zoneSaturation[Zone.safe.name] ?? 'normal';
+        if (saturation == 'overcrowded') {
+          // Suppress spawn, but maybe reset cooldown slightly to check again soon?
+          // Or just don't spawn and keep cooldown 0?
+          // If we don't spawn, cooldown stays 0, will check next tick.
+          // But we want to suppress. So we assume we "failed" to spawn.
+          // Let's set a short cooldown to avoid checking every tick if crowded
+          zoneSpawnCooldowns[Zone.safe] = 10;
+          logger.info('Spawn Suppressed (Safe Zone Overcrowded)');
+        } else {
+          // Spawn Proceed
+          final id = 'spawn_safe_$nextEntityId';
+          entities.add(
+            Entity(
+              id: id,
+              x: -5.0,
+              y: 0.0,
+              zone: Zone.safe,
+              type: EntityType.npc,
+              faction: Faction.order,
+            ),
+          );
+          lifetimes[id] = defaultLifetime;
+          nextEntityId++;
+
+          int delay = (20 / mult).round();
+          if (saturation == 'crowded') {
+            delay *= 2; // Slow down
+            logger.info('Spawn Slowed (Safe Zone Crowded)');
+          }
+          zoneSpawnCooldowns[Zone.safe] = delay;
+          logger.info(
+            'Spawned Safe Entity (Order). Pressure: $pressure, Next in $delay ticks',
+          );
+        }
       }
     }
 
@@ -126,11 +162,37 @@ void main() async {
         // Set Cooldown based on Chaos Pressure
         double pressure = factionPressure[Faction.chaos] ?? 50.0;
         double mult = 0.5 + (pressure / 100.0); // 0.5 to 1.5
-        int delay = (20 / mult).round(); // Base 20 ticks
-        zoneSpawnCooldowns[Zone.wilderness] = delay;
-        logger.info(
-          'Spawned Wilderness Entity (Chaos). Pressure: $pressure, Next in $delay ticks',
-        );
+
+        // Saturation Check
+        String saturation = zoneSaturation[Zone.wilderness.name] ?? 'normal';
+        if (saturation == 'overcrowded') {
+          zoneSpawnCooldowns[Zone.wilderness] = 10;
+          logger.info('Spawn Suppressed (Wilderness Overcrowded)');
+        } else {
+          final id = 'spawn_wild_$nextEntityId';
+          entities.add(
+            Entity(
+              id: id,
+              x: 5.0,
+              y: 0.0,
+              zone: Zone.wilderness,
+              type: EntityType.resource,
+              faction: Faction.chaos,
+            ),
+          );
+          lifetimes[id] = defaultLifetime;
+          nextEntityId++;
+
+          int delay = (20 / mult).round();
+          if (saturation == 'crowded') {
+            delay *= 2;
+            logger.info('Spawn Slowed (Wilderness Crowded)');
+          }
+          zoneSpawnCooldowns[Zone.wilderness] = delay;
+          logger.info(
+            'Spawned Wilderness Entity (Chaos). Pressure: $pressure, Next in $delay ticks',
+          );
+        }
       }
     }
 
@@ -484,6 +546,34 @@ void main() async {
       factionPressure[faction] = newScore;
     });
 
+    // 10. Zone Saturation (Phase 026)
+    for (final zoneName in Zone.values.map((z) => z.name)) {
+      final zone = Zone.values.firstWhere((z) => z.name == zoneName);
+      int count = entities.where((e) => e.zone == zone).length;
+      Faction owner = zoneControl[zoneName] ?? Faction.neutral;
+      double pressure = factionPressure[owner] ?? 50.0;
+
+      // Calculate Thresholds driven by Pressure
+      // Base: Crowded 10, Limit 20.
+      // Mod: ((Pressure - 50) / 5).round() -> -10 to +10.
+      int mod = ((pressure - 50.0) / 5.0).round();
+      int effectiveLimit = 20 + mod;
+      int effectiveCrowded = 10 + mod;
+
+      // Safety Clamp
+      if (effectiveLimit < 10) effectiveLimit = 10;
+      if (effectiveCrowded < 5) effectiveCrowded = 5;
+
+      String state = 'normal';
+      if (count >= effectiveLimit) {
+        state = 'overcrowded';
+      } else if (count >= effectiveCrowded) {
+        state = 'crowded';
+      }
+
+      zoneSaturation[zoneName] = state;
+    }
+
     final state = WorldState(
       entities: entities,
       players: players,
@@ -498,6 +588,7 @@ void main() async {
       factionMorale: factionMorale,
       factionPressure: factionPressure,
       factionInfluenceModifiers: factionInfluenceModifiers,
+      zoneSaturation: zoneSaturation,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
