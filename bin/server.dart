@@ -161,10 +161,58 @@ void main() async {
       playerProximityCounts[p.id] = count;
     }
 
+    // 6. Cluster Detection (Phase 017)
+    final zoneClusterCounts = <String, int>{};
+    int largestClusterSize = 0;
+
+    if (entities.isNotEmpty) {
+      final visited = <int>{};
+      const double clusterRadius = 3.0;
+
+      for (int i = 0; i < entities.length; i++) {
+        if (visited.contains(i)) continue;
+
+        // Start a new cluster
+        final cluster = <int>{i};
+        final queue = <int>[i];
+        visited.add(i);
+
+        while (queue.isNotEmpty) {
+          final current = queue.removeLast();
+          final e1 = entities[current];
+
+          for (int j = 0; j < entities.length; j++) {
+            if (visited.contains(j)) continue;
+
+            final e2 = entities[j];
+            final dist = (e1.x - e2.x).abs(); // 1D distance for now
+            if (dist <= clusterRadius) {
+              visited.add(j);
+              cluster.add(j);
+              queue.add(j);
+            }
+          }
+        }
+
+        // Analyze cluster
+        if (cluster.length >= 2) {
+          final firstEntity = entities[cluster.first];
+          final zoneName = firstEntity.zone.name;
+          zoneClusterCounts[zoneName] = (zoneClusterCounts[zoneName] ?? 0) + 1;
+
+          if (cluster.length > largestClusterSize) {
+            largestClusterSize = cluster.length;
+          }
+        }
+      }
+    }
+
     final state = WorldState(
       entities: entities,
       players: players,
       playerProximityCounts: playerProximityCounts,
+      zoneClusterCounts: zoneClusterCounts,
+      largestClusterSize: largestClusterSize,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
