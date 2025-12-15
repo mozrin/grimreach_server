@@ -4,6 +4,7 @@ import 'package:grimreach_api/protocol.dart';
 import 'package:grimreach_api/entity.dart';
 import 'package:grimreach_api/world_state.dart';
 import 'package:grimreach_api/zone.dart';
+import 'package:grimreach_api/entity_type.dart';
 import 'package:grimreach_server/net/websocket_server.dart';
 
 void main() async {
@@ -16,9 +17,9 @@ void main() async {
   // Option 1: Start tick loop first.
   // Create static entities
   final entities = [
-    Entity(id: 'ent_1', zone: Zone.safe),
-    Entity(id: 'ent_2', zone: Zone.wilderness),
-    Entity(id: 'ent_3', zone: Zone.safe),
+    Entity(id: 'ent_1', zone: Zone.safe, type: EntityType.npc),
+    Entity(id: 'ent_2', zone: Zone.wilderness, type: EntityType.resource),
+    Entity(id: 'ent_3', zone: Zone.safe, type: EntityType.structure),
   ];
 
   print('Server: Starting tick loop...');
