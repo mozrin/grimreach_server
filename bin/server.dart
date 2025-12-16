@@ -10,6 +10,7 @@ import 'package:grimreach_api/faction.dart';
 import 'package:grimreach_server/net/websocket_server.dart';
 import 'package:grimreach_api/hazard.dart';
 import 'package:grimreach_server/services/logger_service.dart';
+import 'package:grimreach_api/season.dart';
 
 void main() async {
   final server = WebsocketServer(port: 8080);
@@ -66,12 +67,35 @@ void main() async {
   };
   int hazardTimer = 0;
 
+  // Phase 030: Seasonal State
+  Season currentSeason = Season.spring;
+  int seasonTimer = 0;
+  List<String> activeSeasonalModifiers = [];
+
   const int maxPerZone = 20;
   const int defaultLifetime = 50; // 5 seconds
   int nextEntityId = 1;
 
   logger.info('Starting tick loop...');
   Timer.periodic(Duration(milliseconds: 100), (timer) {
+    // Phase 030: Update Seasonal Cycle
+    seasonTimer++;
+    if (seasonTimer >= 400) seasonTimer = 0; // 400 tick cycle
+
+    if (seasonTimer < 100) {
+      currentSeason = Season.spring;
+      activeSeasonalModifiers = ['Spring: +Spawn Rate'];
+    } else if (seasonTimer < 200) {
+      currentSeason = Season.summer;
+      activeSeasonalModifiers = ['Summer: +Influence Gain'];
+    } else if (seasonTimer < 300) {
+      currentSeason = Season.autumn;
+      activeSeasonalModifiers = ['Autumn: -Pressure'];
+    } else {
+      currentSeason = Season.winter;
+      activeSeasonalModifiers = ['Winter: -Movement Speed'];
+    }
+
     // 1. Despawn Cycle
     final expiredIds = <String>[];
     for (final id in lifetimes.keys) {
@@ -156,6 +180,11 @@ void main() async {
         double pressure = factionPressure[Faction.order] ?? 50.0;
         double mult = 0.5 + (pressure / 100.0); // 0.5 to 1.5
 
+        // Phase 030: Spring Modifier (Increase Spawn Rate)
+        if (currentSeason == Season.spring) {
+          mult *= 1.5;
+        }
+
         // Saturation Check
         String saturation = zoneSaturation[Zone.safe.name] ?? 'normal';
         if (saturation == 'overcrowded') {
@@ -220,6 +249,11 @@ void main() async {
         // Set Cooldown based on Chaos Pressure
         double pressure = factionPressure[Faction.chaos] ?? 50.0;
         double mult = 0.5 + (pressure / 100.0); // 0.5 to 1.5
+
+        // Phase 030: Spring Modifier (Increase Spawn Rate)
+        if (currentSeason == Season.spring) {
+          mult *= 1.5;
+        }
 
         // Saturation Check
         String saturation = zoneSaturation[Zone.wilderness.name] ?? 'normal';
@@ -331,6 +365,11 @@ void main() async {
         dir *= 0.5;
       }
 
+      // Phase 030: Winter Modifier (Slow Movement)
+      if (currentSeason == Season.winter) {
+        dir *= 0.75;
+      }
+
       // Migration Push (Phase 027)
       // Safe Zone -> Wilderness (+X)
       // Only applies if Pressure > 50
@@ -398,7 +437,14 @@ void main() async {
       final dir = session.direction;
 
       // Calculate new state
-      var newX = p.x + (dir * 0.5);
+      // Calculate new state
+      double speed = 0.5;
+      // Phase 030: Winter Modifier (Slow Player Movement)
+      if (currentSeason == Season.winter) {
+        speed *= 0.75;
+      }
+
+      var newX = p.x + (dir * speed);
       var newDir = dir;
 
       if (newX >= 10.0) {
@@ -542,6 +588,12 @@ void main() async {
         final decayMult = factionDecayMult[faction] ?? 1.0;
 
         double gain = count * 1.0 * gainMult;
+
+        // Phase 030: Summer Modifier (Boost Influence)
+        if (currentSeason == Season.summer) {
+          gain *= 1.25;
+        }
+
         double decay = 0.1 * decayMult;
 
         // Modifier: Quake reduces influence gain
@@ -618,6 +670,11 @@ void main() async {
       double morale = factionMorale[faction] ?? 50.0;
       double gain = (morale / 100.0) * 0.5; // Up to +0.5
       double decay = 0.2; // Constant drain
+
+      // Phase 030: Autumn Modifier (Reduce Pressure)
+      if (currentSeason == Season.autumn) {
+        decay *= 2.0; // Faster decay = less pressure
+      }
 
       double newScore = score + gain - decay;
       if (newScore > 100.0) {
@@ -717,6 +774,8 @@ void main() async {
       migrationPressure: migrationPressure,
       globalEnvironment: currentEnvironment,
       zoneHazards: currentHazards.map((k, v) => MapEntry(k.name, v.name)),
+      currentSeason: currentSeason,
+      seasonalModifiers: activeSeasonalModifiers,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
