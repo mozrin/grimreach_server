@@ -8,6 +8,7 @@ import 'package:grimreach_api/entity_type.dart';
 import 'package:grimreach_api/player.dart';
 import 'package:grimreach_api/faction.dart';
 import 'package:grimreach_server/net/websocket_server.dart';
+import 'package:grimreach_api/hazard.dart';
 import 'package:grimreach_server/services/logger_service.dart';
 
 void main() async {
@@ -58,6 +59,12 @@ void main() async {
   // Phase 028: Environmental State
   int environmentTimer = 0;
   String currentEnvironment = 'calm';
+  // Phase 029: Zone Hazards
+  final currentHazards = <Zone, Hazard>{
+    Zone.safe: Hazard.none,
+    Zone.wilderness: Hazard.none,
+  };
+  int hazardTimer = 0;
 
   const int maxPerZone = 20;
   const int defaultLifetime = 50; // 5 seconds
@@ -82,6 +89,40 @@ void main() async {
       logger.info('Despawned entity $id');
     }
 
+    // Phase 029: Update Hazard Cycle (Deterministic)
+    // Cycle Length: 300 ticks
+    // 0-100: None
+    // 100-150: Storm Surge (Safe only)
+    // 150-200: Wildfire (Wilderness only)
+    // 200-250: Toxic Fog (Global)
+    // 250-300: Quake (Global)
+    hazardTimer++;
+    if (hazardTimer >= 300) hazardTimer = 0;
+
+    Hazard globalHazard = Hazard.none;
+    if (hazardTimer >= 200 && hazardTimer < 250) {
+      globalHazard = Hazard.toxicFog;
+    } else if (hazardTimer >= 250) {
+      globalHazard = Hazard.quake;
+    }
+
+    if (globalHazard != Hazard.none) {
+      currentHazards[Zone.safe] = globalHazard;
+      currentHazards[Zone.wilderness] = globalHazard;
+    } else {
+      // Zone Specific
+      if (hazardTimer >= 100 && hazardTimer < 150) {
+        currentHazards[Zone.safe] = Hazard.stormSurge;
+        currentHazards[Zone.wilderness] = Hazard.none;
+      } else if (hazardTimer >= 150 && hazardTimer < 200) {
+        currentHazards[Zone.safe] = Hazard.none;
+        currentHazards[Zone.wilderness] = Hazard.wildfire;
+      } else {
+        currentHazards[Zone.safe] = Hazard.none;
+        currentHazards[Zone.wilderness] = Hazard.none;
+      }
+    }
+
     // 2. Spawn Cycle (Pressure-Driven Phase 025)
 
     // Decrement Cooldowns
@@ -90,7 +131,13 @@ void main() async {
     // Safe Zone Rule (NPCs) -> Faction Order
     if (currentEnvironment != 'storm' && zoneSpawnCooldowns[Zone.safe]! <= 0) {
       final safeCount = entities.where((e) => e.zone == Zone.safe).length;
-      if (safeCount < maxPerZone) {
+      // Modifier: Storm Surge reduces max count allowed
+      int adjustedMax = maxPerZone;
+      if (currentHazards[Zone.safe] == Hazard.stormSurge) {
+        adjustedMax = (maxPerZone * 0.5).round(); // 10
+      }
+
+      if (safeCount < adjustedMax) {
         final id = 'spawn_safe_$nextEntityId';
         entities.add(
           Entity(
@@ -151,8 +198,11 @@ void main() async {
     // Wilderness Rule (Resources) -> Faction Chaos
     if (currentEnvironment != 'storm' &&
         zoneSpawnCooldowns[Zone.wilderness]! <= 0) {
+      // Modifier: Wildfire suppresses spawning completely
+      bool suppressed = currentHazards[Zone.wilderness] == Hazard.wildfire;
+
       final wildCount = entities.where((e) => e.zone == Zone.wilderness).length;
-      if (wildCount < maxPerZone) {
+      if (!suppressed && wildCount < maxPerZone) {
         final id = 'spawn_wild_$nextEntityId';
         entities.add(
           Entity(
@@ -275,6 +325,10 @@ void main() async {
       // Modifiers (Phase 028)
       if (currentEnvironment == 'fog') {
         dir *= 0.4; // 0.2 speed (since prev was *0.5)
+      }
+      // Modifier: Toxic Fog slows movement
+      if (currentHazards[e.zone] == Hazard.toxicFog) {
+        dir *= 0.5;
       }
 
       // Migration Push (Phase 027)
@@ -490,6 +544,12 @@ void main() async {
         double gain = count * 1.0 * gainMult;
         double decay = 0.1 * decayMult;
 
+        // Modifier: Quake reduces influence gain
+        final zoneObj = Zone.values.firstWhere((z) => z.name == zoneName);
+        if (currentHazards[zoneObj] == Hazard.quake) {
+          gain *= 0.5;
+        }
+
         double newScore = factionScores[faction]! + gain - decay;
         if (newScore > 100.0) newScore = 100.0;
         if (newScore < 0.0) newScore = 0.0;
@@ -611,6 +671,12 @@ void main() async {
         gain = 1.0;
       }
 
+      // Modifier: Storm Surge increases migration pressure
+      final zoneObj = Zone.values.firstWhere((z) => z.name == zoneName);
+      if (currentHazards[zoneObj] == Hazard.stormSurge) {
+        gain += 1.0;
+      }
+
       // Decay
       double decay = 0.5;
 
@@ -650,6 +716,7 @@ void main() async {
       zoneSaturation: zoneSaturation,
       migrationPressure: migrationPressure,
       globalEnvironment: currentEnvironment,
+      zoneHazards: currentHazards.map((k, v) => MapEntry(k.name, v.name)),
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
