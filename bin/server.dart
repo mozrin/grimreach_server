@@ -11,6 +11,7 @@ import 'package:grimreach_server/net/websocket_server.dart';
 import 'package:grimreach_api/hazard.dart';
 import 'package:grimreach_server/services/logger_service.dart';
 import 'package:grimreach_api/season.dart';
+import 'package:grimreach_api/lunar_phase.dart';
 
 void main() async {
   final server = WebsocketServer(port: 8080);
@@ -72,6 +73,11 @@ void main() async {
   int seasonTimer = 0;
   List<String> activeSeasonalModifiers = [];
 
+  // Phase 031: Lunar State
+  LunarPhase currentLunarPhase = LunarPhase.newMoon;
+  int lunarTimer = 0;
+  List<String> activeLunarModifiers = [];
+
   const int maxPerZone = 20;
   const int defaultLifetime = 50; // 5 seconds
   int nextEntityId = 1;
@@ -94,6 +100,24 @@ void main() async {
     } else {
       currentSeason = Season.winter;
       activeSeasonalModifiers = ['Winter: -Movement Speed'];
+    }
+
+    // Phase 031: Update Lunar Cycle
+    lunarTimer++;
+    if (lunarTimer >= 200) lunarTimer = 0; // 200 tick cycle
+
+    if (lunarTimer < 50) {
+      currentLunarPhase = LunarPhase.newMoon;
+      activeLunarModifiers = ['New Moon: -Influence Gain'];
+    } else if (lunarTimer < 100) {
+      currentLunarPhase = LunarPhase.waxing;
+      activeLunarModifiers = ['Waxing: +Migration Pressure'];
+    } else if (lunarTimer < 150) {
+      currentLunarPhase = LunarPhase.fullMoon;
+      activeLunarModifiers = ['Full Moon: ++Spawn Rate, ++Hazards'];
+    } else {
+      currentLunarPhase = LunarPhase.waning;
+      activeLunarModifiers = ['Waning: +Influence Decay'];
     }
 
     // 1. Despawn Cycle
@@ -182,6 +206,11 @@ void main() async {
 
         // Phase 030: Spring Modifier (Increase Spawn Rate)
         if (currentSeason == Season.spring) {
+          mult *= 1.5;
+        }
+
+        // Phase 031: Lunar Modifier (Full Moon = +Spawn Rate)
+        if (currentLunarPhase == LunarPhase.fullMoon) {
           mult *= 1.5;
         }
 
@@ -363,6 +392,10 @@ void main() async {
       // Modifier: Toxic Fog slows movement
       if (currentHazards[e.zone] == Hazard.toxicFog) {
         dir *= 0.5;
+        // Phase 031: Lunar Modifier (Full Moon amplifies Toxic Fog)
+        if (currentLunarPhase == LunarPhase.fullMoon) {
+          dir *= 0.5;
+        }
       }
 
       // Phase 030: Winter Modifier (Slow Movement)
@@ -594,12 +627,26 @@ void main() async {
           gain *= 1.25;
         }
 
+        // Phase 031: Lunar Modifier (New Moon = -Influence Gain)
+        if (currentLunarPhase == LunarPhase.newMoon) {
+          gain *= 0.75;
+        }
+
         double decay = 0.1 * decayMult;
+
+        // Phase 031: Lunar Modifier (Waning = +Influence Decay)
+        if (currentLunarPhase == LunarPhase.waning) {
+          decay *= 1.25;
+        }
 
         // Modifier: Quake reduces influence gain
         final zoneObj = Zone.values.firstWhere((z) => z.name == zoneName);
         if (currentHazards[zoneObj] == Hazard.quake) {
           gain *= 0.5;
+          // Phase 031: Lunar Modifier (Full Moon amplifies Quake)
+          if (currentLunarPhase == LunarPhase.fullMoon) {
+            gain *= 0.5;
+          }
         }
 
         double newScore = factionScores[faction]! + gain - decay;
@@ -728,6 +775,11 @@ void main() async {
         gain = 1.0;
       }
 
+      // Phase 031: Lunar Modifier (Waxing = +Migration Pressure)
+      if (currentLunarPhase == LunarPhase.waxing) {
+        gain += 0.5;
+      }
+
       // Modifier: Storm Surge increases migration pressure
       final zoneObj = Zone.values.firstWhere((z) => z.name == zoneName);
       if (currentHazards[zoneObj] == Hazard.stormSurge) {
@@ -776,6 +828,8 @@ void main() async {
       zoneHazards: currentHazards.map((k, v) => MapEntry(k.name, v.name)),
       currentSeason: currentSeason,
       seasonalModifiers: activeSeasonalModifiers,
+      currentLunarPhase: currentLunarPhase,
+      lunarModifiers: activeLunarModifiers,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
