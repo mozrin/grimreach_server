@@ -13,6 +13,7 @@ import 'package:grimreach_server/services/logger_service.dart';
 import 'package:grimreach_api/season.dart';
 import 'package:grimreach_api/lunar_phase.dart';
 import 'package:grimreach_api/constellation.dart';
+import 'package:grimreach_api/harmonic_state.dart';
 
 void main() async {
   final server = WebsocketServer(port: 8080);
@@ -84,6 +85,10 @@ void main() async {
   int constellationTimer = 0;
   List<String> activeConstellationModifiers = [];
 
+  // Phase 033: Harmonic State
+  HarmonicState currentHarmonicState = HarmonicState.nullState;
+  List<String> activeHarmonicModifiers = [];
+
   const int maxPerZone = 20;
   const int defaultLifetime = 50; // 5 seconds
   int nextEntityId = 1;
@@ -142,6 +147,42 @@ void main() async {
     } else {
       currentConstellation = Constellation.forge;
       activeConstellationModifiers = ['The Forge: +Hazard Intensity'];
+    }
+
+    // Phase 033: Compute Harmonic State
+    int resonanceScore = 0;
+    int discordanceScore = 0;
+    int amplificationScore = 0;
+
+    // Resonance: Spring + Waxing + Crown
+    if (currentSeason == Season.spring) resonanceScore++;
+    if (currentLunarPhase == LunarPhase.waxing) resonanceScore++;
+    if (currentConstellation == Constellation.crown) resonanceScore++;
+
+    // Discordance: Autumn + Waning + Serpent
+    if (currentSeason == Season.autumn) discordanceScore++;
+    if (currentLunarPhase == LunarPhase.waning) discordanceScore++;
+    if (currentConstellation == Constellation.serpent) discordanceScore++;
+
+    // Amplification: Summer + FullMoon + Forge
+    if (currentSeason == Season.summer) amplificationScore++;
+    if (currentLunarPhase == LunarPhase.fullMoon) amplificationScore++;
+    if (currentConstellation == Constellation.forge) amplificationScore++;
+
+    // Determine State (Priority: Amp > Disc > Res > Null)
+    // Threshold: 2+ matches
+    if (amplificationScore >= 2) {
+      currentHarmonicState = HarmonicState.amplification;
+      activeHarmonicModifiers = ['Amplification: ++Hazard Intensity'];
+    } else if (discordanceScore >= 2) {
+      currentHarmonicState = HarmonicState.discordance;
+      activeHarmonicModifiers = ['Discordance: +Chaos Pressure'];
+    } else if (resonanceScore >= 2) {
+      currentHarmonicState = HarmonicState.resonance;
+      activeHarmonicModifiers = ['Resonance: +Global Influence Gain'];
+    } else {
+      currentHarmonicState = HarmonicState.nullState;
+      activeHarmonicModifiers = ['Null State: -Migration Flow'];
     }
 
     // 1. Despawn Cycle
@@ -634,6 +675,11 @@ void main() async {
           (factionGainMult[Faction.order] ?? 1.0) * 1.5;
     }
 
+    // Phase 033: Harmonic Modifier (Resonance boosts ALL influence)
+    if (currentHarmonicState == HarmonicState.resonance) {
+      factionGainMult.updateAll((key, val) => val * 1.25);
+    }
+
     // Exposed Map for WorldState
     final factionInfluenceModifiers = Map<Faction, double>.from(
       factionGainMult,
@@ -680,6 +726,10 @@ void main() async {
           // Phase 032: Constellation Modifier (Forge amplifies Hazard effect on Influence)
           if (currentConstellation == Constellation.forge) {
             gain *= 0.5; // Stacks with Lunar for brutal 0.25x if both active
+          }
+          // Phase 033: Harmonic Modifier (Amplification makes hazards even worse)
+          if (currentHarmonicState == HarmonicState.amplification) {
+            gain *= 0.5; // Potentially 0.125x!
           }
         }
 
@@ -764,6 +814,11 @@ void main() async {
         gain *= 1.5;
       }
 
+      // Phase 033: Harmonic Modifier (Discordance increases global pressure)
+      if (currentHarmonicState == HarmonicState.discordance) {
+        gain *= 1.25; // Pressure builds faster everywhere
+      }
+
       double newScore = score + gain - decay;
       if (newScore > 100.0) {
         newScore = 100.0;
@@ -830,6 +885,11 @@ void main() async {
         decay *= 0.5; // Slower decay keeps migration active longer
       }
 
+      // Phase 033: Harmonic Modifier (Null State reduces migration flow)
+      if (currentHarmonicState == HarmonicState.nullState) {
+        gain *= 0.5; // Migration is sluggish
+      }
+
       // Modifier: Storm Surge increases migration pressure
       final zoneObj = Zone.values.firstWhere((z) => z.name == zoneName);
       if (currentHazards[zoneObj] == Hazard.stormSurge) {
@@ -879,6 +939,8 @@ void main() async {
       lunarModifiers: activeLunarModifiers,
       currentConstellation: currentConstellation,
       constellationModifiers: activeConstellationModifiers,
+      currentHarmonicState: currentHarmonicState,
+      harmonicModifiers: activeHarmonicModifiers,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
