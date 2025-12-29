@@ -12,6 +12,7 @@ import 'package:grimreach_api/hazard.dart';
 import 'package:grimreach_server/services/logger_service.dart';
 import 'package:grimreach_api/season.dart';
 import 'package:grimreach_api/lunar_phase.dart';
+import 'package:grimreach_api/constellation.dart';
 
 void main() async {
   final server = WebsocketServer(port: 8080);
@@ -78,6 +79,11 @@ void main() async {
   int lunarTimer = 0;
   List<String> activeLunarModifiers = [];
 
+  // Phase 032: Constellation State
+  Constellation currentConstellation = Constellation.wanderer;
+  int constellationTimer = 0;
+  List<String> activeConstellationModifiers = [];
+
   const int maxPerZone = 20;
   const int defaultLifetime = 50; // 5 seconds
   int nextEntityId = 1;
@@ -118,6 +124,24 @@ void main() async {
     } else {
       currentLunarPhase = LunarPhase.waning;
       activeLunarModifiers = ['Waning: +Influence Decay'];
+    }
+
+    // Phase 032: Update Constellation Cycle (Slower, 500 ticks)
+    constellationTimer++;
+    if (constellationTimer >= 400) constellationTimer = 0;
+
+    if (constellationTimer < 100) {
+      currentConstellation = Constellation.wanderer;
+      activeConstellationModifiers = ['The Wanderer: ++Migration (Flow)'];
+    } else if (constellationTimer < 200) {
+      currentConstellation = Constellation.crown;
+      activeConstellationModifiers = ['The Crown: +Order Influence'];
+    } else if (constellationTimer < 300) {
+      currentConstellation = Constellation.serpent;
+      activeConstellationModifiers = ['The Serpent: +Chaos Pressure'];
+    } else {
+      currentConstellation = Constellation.forge;
+      activeConstellationModifiers = ['The Forge: +Hazard Intensity'];
     }
 
     // 1. Despawn Cycle
@@ -604,6 +628,12 @@ void main() async {
       factionDecayMult[faction] = 1.5 - ratio; // 1.5 to 0.5
     });
 
+    // Phase 032: Constellation Modifier (Crown boosts Order Gain)
+    if (currentConstellation == Constellation.crown) {
+      factionGainMult[Faction.order] =
+          (factionGainMult[Faction.order] ?? 1.0) * 1.5;
+    }
+
     // Exposed Map for WorldState
     final factionInfluenceModifiers = Map<Faction, double>.from(
       factionGainMult,
@@ -646,6 +676,10 @@ void main() async {
           // Phase 031: Lunar Modifier (Full Moon amplifies Quake)
           if (currentLunarPhase == LunarPhase.fullMoon) {
             gain *= 0.5;
+          }
+          // Phase 032: Constellation Modifier (Forge amplifies Hazard effect on Influence)
+          if (currentConstellation == Constellation.forge) {
+            gain *= 0.5; // Stacks with Lunar for brutal 0.25x if both active
           }
         }
 
@@ -723,6 +757,13 @@ void main() async {
         decay *= 2.0; // Faster decay = less pressure
       }
 
+      // Phase 032: Constellation Modifier (Serpent increases Chaos Pressure)
+      if (currentConstellation == Constellation.serpent &&
+          faction == Faction.chaos) {
+        decay *= 0.5; // Slower decay = more pressure build up
+        gain *= 1.5;
+      }
+
       double newScore = score + gain - decay;
       if (newScore > 100.0) {
         newScore = 100.0;
@@ -780,14 +821,20 @@ void main() async {
         gain += 0.5;
       }
 
+      // Decay
+      double decay = 0.5;
+
+      // Phase 032: Constellation Modifier (Wanderer = ++Migration Pressure)
+      if (currentConstellation == Constellation.wanderer) {
+        gain += 1.0;
+        decay *= 0.5; // Slower decay keeps migration active longer
+      }
+
       // Modifier: Storm Surge increases migration pressure
       final zoneObj = Zone.values.firstWhere((z) => z.name == zoneName);
       if (currentHazards[zoneObj] == Hazard.stormSurge) {
         gain += 1.0;
       }
-
-      // Decay
-      double decay = 0.5;
 
       double next = current + gain - decay;
       if (next > 100.0) next = 100.0;
@@ -830,6 +877,8 @@ void main() async {
       seasonalModifiers: activeSeasonalModifiers,
       currentLunarPhase: currentLunarPhase,
       lunarModifiers: activeLunarModifiers,
+      currentConstellation: currentConstellation,
+      constellationModifiers: activeConstellationModifiers,
     );
     final message = Message(type: Protocol.state, data: state.toJson());
     server.broadcast(message);
